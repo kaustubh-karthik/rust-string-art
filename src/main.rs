@@ -4,6 +4,7 @@ extern crate ndarray;
 use image::DynamicImage;
 use image::imageops::invert;
 use ndarray::{Axis, Array2, ArrayView2};
+use ndarray_stats::QuantileExt;
 use std::{f64::consts::PI, time::Instant, fs};
 use imageproc::contrast::stretch_contrast;
 use crate::image::EncodableLayout;
@@ -29,10 +30,16 @@ fn main() {
     let mut generator = StringArtGenerator::new();
     generator.load_image(r"C:\Users\Kaustubh Karthik\Documents\Computer_Science\Rust_Projects\string_art\src\images\input\stickman.jpg");
     generator.preprocess();
-    generator.set_nails(10);
-    generator.set_seed(5);
-    generator.set_iterations(50);
+    generator.set_nails(5);
+    generator.set_seed(1);
+    generator.set_iterations(10);
     let pattern = generator.generate();
+    let pattern_str: Vec<String> = pattern
+        .iter()
+        .map(|(x, y)| format!("{},{}", x, y))
+        .collect();
+    fs::write("file.txt", pattern_str.join("\n")).expect("Unable to write file");
+
 
     let root = BitMapBackend::new(r"C:\Users\Kaustubh Karthik\Documents\Computer_Science\Rust_Projects\string_art\src\images\output\string_stickman.jpg", (800, 800)).into_drawing_area();
     root.fill(&WHITE).unwrap();
@@ -63,7 +70,7 @@ fn main() {
 impl StringArtGenerator {
     fn new() -> Self {
         Self {
-            iterations: 1000,
+            iterations: 1,
             shape: "circle".to_string(),
             image: None,
             data: None,
@@ -167,12 +174,13 @@ impl StringArtGenerator {
             .to_owned()
             .mapv(|x| x as f64);
         self.data = Some(np_img);
-
+        img.save("output.png").unwrap()
     }
     
 
     fn generate(&mut self) -> Vec<(f64, f64)> {
         self.calculate_paths();
+        println!("paths: {:?}", self.paths);
         let mut delta = 0.0;
         let mut pattern = Vec::new();
         let mut nail = self.seed;
@@ -198,6 +206,8 @@ impl StringArtGenerator {
         self.residual = Some(self.data.as_ref().unwrap().to_owned());
         self.data = Some(datacopy);
 
+
+        println!("{:?}", pattern);
         pattern
     }
 
@@ -205,22 +215,42 @@ impl StringArtGenerator {
         let mut max_darkness = -1.0;
         let mut darkest_nail = 0;
         let mut darkest_path = Array2::zeros(self.data.as_ref().unwrap().dim());
-        let (n_rows, n_cols) = self.data.as_ref().unwrap().dim();
         for (index, rowcol) in self.paths[nail as usize].iter().enumerate() {
-            let rows: Vec<usize> = rowcol.iter().map(|x| x.0.min(n_rows - 1)).collect();
-            let cols: Vec<usize> = rowcol.iter().map(|x| x.1.min(n_cols - 1)).collect();
-            let darkness = self.data.as_ref().unwrap().select(Axis(0), &rows).select(Axis(1), &cols).sum();
+            // Use Vec::from_iter instead of map to avoid clamping the indices
+            let mut rows: Vec<usize> = Vec::from_iter(rowcol.iter().map(|x| x.0));
+            let mut cols: Vec<usize> = Vec::from_iter(rowcol.iter().map(|x| x.1));
+            // Remove the consecutive duplicates from the vectors
+            rows.dedup();
+            cols.dedup();
+            // Get the minimum and maximum values in the data array
+            let min = self.data.as_ref().unwrap().min().unwrap();
+            let max = self.data.as_ref().unwrap().max().unwrap();
+            // Scale the data array to a range between 0 and 1
+            let scaled_data = (self.data.as_ref().unwrap() - *min) / (*max - *min);
+            // Use index_axis to slice the scaled data array along one axis at a time
+            let darkness = scaled_data.select(Axis(0), &rows).select(Axis(1), &cols).sum();
+            
+            println!("{:?}", darkness);
             if darkness > max_darkness {
-                darkest_path.fill(0.0);
+                // Create a new array of zeros instead of filling the existing one
+                darkest_path = Array2::zeros(self.data.as_ref().unwrap().dim());
                 for (row, col) in rowcol {
-                    darkest_path[[*row.min(&(n_rows - 1)), *col.min(&(n_cols - 1))]] = 1.0;
+                    darkest_path[[*row, *col]] = 1.0;
                 }
                 darkest_nail = index;
                 max_darkness = darkness;
             }
         }
+        /*
+        // Filter out the zero values
+        let nonzero = darkest_path.iter().filter(|&&x| x != 0.0);
+        // Collect the nonzero values into a vector
+        let nonzero_vec: Vec<f64> = nonzero.cloned().collect();
+        println!("darkest path: {:?}", nonzero_vec);
+        */
         (darkest_nail, darkest_path)
     }
+    
     
     
     fn calculate_paths(&mut self) {
@@ -238,11 +268,11 @@ fn bresenham_path(start: (f64, f64), end: (f64, f64), shape: (usize, usize)) -> 
     let (mut x1, mut y1) = start;
     let (mut x2, mut y2) = end;
 
-    x1 = x1.max(0.0).min((shape.0 - 1) as f64).round();
-    y1 = y1.max(0.0).min((shape.1 - 1) as f64).round();
-    x2 = x2.max(0.0).min((shape.0 - 1) as f64).round();
-    y2 = y2.max(0.0).min((shape.1 - 1) as f64).round();
-
+    x1 = (x1.round().max(0.0).min((shape.0 - 1) as f64) as usize) as f64;
+    y1 = (y1.round().max(0.0).min((shape.1 - 1) as f64) as usize) as f64;
+    x2 = (x2.round().max(0.0).min((shape.0 - 1) as f64) as usize) as f64;
+    y2 = (y2.round().max(0.0).min((shape.1 - 1) as f64) as usize) as f64;
+    
     let dx = x2 - x1;
     let dy = y2 - y1;
 
