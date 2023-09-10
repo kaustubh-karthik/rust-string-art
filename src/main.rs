@@ -5,7 +5,7 @@ use image::DynamicImage;
 use image::imageops::invert;
 use ndarray::{Axis, Array2, ArrayView2};
 use ndarray_stats::QuantileExt;
-use std::{f64::consts::PI, time::Instant, fs};
+use std::{f64::consts::PI, time::Instant, fs, fmt};
 use imageproc::contrast::stretch_contrast;
 use crate::image::EncodableLayout;
 use plotters::prelude::*;
@@ -28,20 +28,16 @@ fn main() {
     let start = Instant::now();
 
     let mut generator = StringArtGenerator::new();
-    generator.load_image(r"C:\Users\Kaustubh Karthik\Documents\Computer_Science\Rust_Projects\string_art\src\images\input\stickman.jpg");
+    generator.load_image(r"C:\Users\Kaustubh Karthik\Documents\Computer_Science\Rust_Projects\string_art\src\images\input\aniv.jpg");
     generator.preprocess();
     generator.set_nails(5);
     generator.set_seed(1);
     generator.set_iterations(10);
     let pattern = generator.generate();
-    let pattern_str: Vec<String> = pattern
-        .iter()
-        .map(|(x, y)| format!("{},{}", x, y))
-        .collect();
-    fs::write("file.txt", pattern_str.join("\n")).expect("Unable to write file");
+    fs::write("pattern.txt", format!("{:?}", pattern)).expect("Unable to write file");
 
 
-    let root = BitMapBackend::new(r"C:\Users\Kaustubh Karthik\Documents\Computer_Science\Rust_Projects\string_art\src\images\output\string_stickman.jpg", (800, 800)).into_drawing_area();
+    let root = BitMapBackend::new(r"C:\Users\Kaustubh Karthik\Documents\Computer_Science\Rust_Projects\string_art\src\images\output\string_aniv.jpg", (1920, 1920)).into_drawing_area();
     root.fill(&WHITE).unwrap();
     let mut chart = ChartBuilder::on(&root)
         .margin(0)
@@ -77,9 +73,10 @@ impl StringArtGenerator {
             residual: None,
             seed: 0,
             nails: 50,
-            weight: 20.0,
+            weight: 200.0,
             nodes: Vec::new(),
             paths: Vec::new(),
+            
         }
     }
 
@@ -174,13 +171,15 @@ impl StringArtGenerator {
             .to_owned()
             .mapv(|x| x as f64);
         self.data = Some(np_img);
+        let data_iter = self.data.as_ref().unwrap().iter();
+        let v: Vec<_> = data_iter.collect();
+        fs::write("data.txt", format!("{:?}", v)).expect("Unable to write file");
         img.save("output.png").unwrap()
     }
     
 
     fn generate(&mut self) -> Vec<(f64, f64)> {
         self.calculate_paths();
-        println!("paths: {:?}", self.paths);
         let mut delta = 0.0;
         let mut pattern = Vec::new();
         let mut nail = self.seed;
@@ -194,7 +193,6 @@ impl StringArtGenerator {
             self.data.as_mut().unwrap().mapv_inplace(|x| if x < 0.0 { 0.0 } else { x });
 
             if self.data.as_ref().unwrap().sum() <= 0.0 {
-                println!("Stopping iterations. No more data or residual unchanged.");
                 break;
             }
 
@@ -207,7 +205,6 @@ impl StringArtGenerator {
         self.data = Some(datacopy);
 
 
-        println!("{:?}", pattern);
         pattern
     }
 
@@ -226,11 +223,12 @@ impl StringArtGenerator {
             let min = self.data.as_ref().unwrap().min().unwrap();
             let max = self.data.as_ref().unwrap().max().unwrap();
             // Scale the data array to a range between 0 and 1
-            let scaled_data = (self.data.as_ref().unwrap() - *min) / (*max - *min);
+            let _scaled_data = (self.data.as_ref().unwrap() - *min) / (*max - *min);
             // Use index_axis to slice the scaled data array along one axis at a time
-            let darkness = scaled_data.select(Axis(0), &rows).select(Axis(1), &cols).sum();
-            
+            let darkness = self.data.as_ref().unwrap().select(Axis(0), &rows).select(Axis(1), &cols).sum();
             println!("{:?}", darkness);
+
+
             if darkness > max_darkness {
                 // Create a new array of zeros instead of filling the existing one
                 darkest_path = Array2::zeros(self.data.as_ref().unwrap().dim());
